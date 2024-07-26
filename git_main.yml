@@ -1,0 +1,49 @@
+---
+- name: Pre-check - Ensure connectivity and check /home usage
+  block:
+    - name: Ping the server
+      ping:
+
+    - name: Check /home usage
+      command: df -h /home
+      register: home_usage
+      failed_when: home_usage.stdout_lines[1].split()[4] > '90%'
+
+  rescue:
+    - name: Fail if pre-checks are not met
+      fail:
+        msg: "Pre-checks failed. Halting playbook execution."
+
+- name: Perform security hardening
+  block:
+    - name: Run security hardening script
+      script: "{{ playbook_dir }}/security_hardening.py"
+      args:
+        executable: python3
+        creates: "{{ playbook_dir }}/security_hardening.lock"  # Optional: to avoid re-running the script
+      become: yes
+
+- name: Post-check - Verify SSH service and server health
+  block:
+    - name: Check SSH service status
+      systemd:
+        name: sshd
+        state: started
+
+    - name: Run health check script
+      script: "{{ playbook_dir }}/health_check.py"
+      register: health_check
+      failed_when:
+        - "'Disk Utilization > 90%' in health_check.stdout"
+        - "'CPU Utilization > 90%' in health_check.stdout"
+      changed_when: false
+
+    - name: Print health check output
+      debug:
+        var: health_check.stdout_lines
+      when: health_check.stdout != ""
+
+  rescue:
+    - name: Fail if post-checks are not met
+      fail:
+        msg: "Post-checks failed. Halting playbook execution."
