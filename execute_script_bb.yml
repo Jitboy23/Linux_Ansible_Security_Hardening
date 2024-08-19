@@ -1,0 +1,27 @@
+---
+- name: Execute Python Script
+  hosts: all
+  tasks:
+    - name: Install Git if not present
+      yum:  # For Red Hat-based systems; use apt for Debian-based systems
+        name: git
+        state: present
+      become: yes
+
+    - name: Clone Bitbucket repository with linux2.py script
+      git:
+        repo: 'https://bitbucket.org/your_repo/linux_security_repo.git'  # Replace with your actual Bitbucket repo URL
+        dest: /home/ec2-user/etc/linux_security_hardening/roles/updates/files/  # Destination path on the remote server
+        version: master  # Or specify a branch, tag, or commit
+      become: yes
+
+    - name: Execute Python Script
+      command: python3 /home/ec2-user/etc/linux_security_hardening/roles/updates/files/linux2.py
+      register: script_output
+      become: true
+      become_user: ec2-user
+      become_method: sudo
+
+    - name: Display python script output
+      debug:
+        var: script_output.stdout
