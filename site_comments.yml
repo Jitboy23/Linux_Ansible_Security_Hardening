@@ -1,0 +1,98 @@
+- name: Pre-check - Ensure connectivity and check /home usage
+  hosts: all  # This playbook will run on all hosts defined in the inventory
+  tasks:
+    - block:  # Group of tasks that will be executed sequentially
+        - name: Ping the server
+          ping:  # Ansible's built-in ping module to check if the server is reachable
+
+        - name: Check /home usage
+          command: df -h /home  # Execute the df command to check disk usage on /home
+          register: home_usage  # Register the output of the command to a variable named home_usage
+          failed_when: home_usage.stdout_lines[1].split()[4] > '90%'  # Fail the task if the disk usage is more than 90%
+
+      rescue:  # If any task in the block fails, the tasks in the rescue section will be executed
+        - name: Fail if pre-checks are not met
+          fail:
+            msg: "Pre-checks failed. Halting playbook execution."  # Fail the playbook with a message if pre-checks are not met
+
+- name: Perform security hardening
+  hosts: all  # This playbook will run on all hosts defined in the inventory
+  tasks:
+    - block:  # Group of tasks that will be executed sequentially
+        - name: Copy security hardening script to remote
+          copy:
+            src: /tmp/security_hardening.py  # Source path of the script on the local machine
+            dest: /tmp/security_hardening.py # Destination path of the script on the remote server
+            mode: '0755'  # Set the permissions of the script to be executable
+
+        - name: Run security hardening script
+          script: /tmp/security_hardening.py  # Path to the script to be executed on the remote server
+          args:
+            executable: python3  # Specify that the script should be run with Python 3
+            creates: /path/to/lockfile  # Optional: prevents the script from being re-run if the lockfile exists
+          become: yes  # Run the task with elevated privileges (sudo)
+
+- name: Post-check - Verify SSH service and server health
+  hosts: all  # This playbook will run on all hosts defined in the inventory
+  tasks:
+    - block:  # Group of tasks that will be executed sequentially
+        - name: Run health check script
+          script: /home/ec2-user/etc/linux_security_hardening/roles/security_hardening/files/health_check.py  # Path to the health check script on the remote server
+          register: health_check  # Register the output of the command to a variable named health_check
+          failed_when:
+            - "'Disk Utilization > 90%' in health_check.stdout"  # Fail if disk utilization exceeds 90%
+            - "'CPU Utilization > 90%' in health_check.stdout"  # Fail if CPU utilization exceeds 90%
+          changed_when: false  # The task is not considered changed just because it was executed
+
+        - name: Print health check output
+          debug:
+            var: health_check.stdout_lines  # Print the lines of output from the health check script
+          when: health_check.stdout != ""  # Only run this task if there is output from the health check script
+
+        - name: Check SSH service status
+          systemd:
+            name: sshd  # Name of the service to check
+            state: started  # Ensure the SSH service is started
+
+      rescue:  # If any task in the block fails, the tasks in the rescue section will be executed
+        - name: Fail if post-checks are not met
+          fail:
+            msg: "Post-checks failed. Halting playbook execution."  # Fail the playbook with a message if post-checks are not met
+
+- name: Handle high disk utilization
+  hosts: all  # This playbook will run on all hosts defined in the inventory
+  tasks:
+    - block:  # Group of tasks that will be executed sequentially
+        - name: Print health check details before handling
+          debug:
+            var: health_check.stdout_lines  # Print the lines of output from the health check script before handling
+
+        - name: Clean up old log files
+          shell: sudo rm -rf /var/log/old_logs/*  # Remove old log files to free up space
+          when: "'Disk Utilization > 90%' in health_check.stdout"  # Only run this task if disk utilization exceeds 90%
+
+        - name: Clean up package cache
+          shell: sudo apt-get clean && sudo yum clean all  # Clean up package manager cache to free up space
+          when: "'Disk Utilization > 90%' in health_check.stdout"  # Only run this task if disk utilization exceeds 90%
+
+        - name: Free up space in /home
+          shell: sudo du -sh /home/* | sort -hr | head -n 10 | xargs sudo rm -rf  # Identify and remove the largest directories/files in /home
+          when: "'Disk Utilization > 90%' in health_check.stdout"  # Only run this task if disk utilization exceeds 90%
+
+        - name: Re-run health check script
+          script: /home/ec2-user/etc/linux_security_hardening/roles/security_hardening/files/health_check.py  # Path to the health check script on the remote server
+          register: health_check_retry  # Register the output of the command to a variable named health_check_retry
+          failed_when:
+            - "'Disk Utilization > 90%' in health_check_retry.stdout"  # Fail if disk utilization still exceeds 90%
+            - "'CPU Utilization > 90%' in health_check_retry.stdout"  # Fail if CPU utilization still exceeds 90%
+          changed_when: false  # The task is not considered changed just because it was executed
+
+        - name: Print health check retry output
+          debug:
+            var: health_check_retry.stdout_lines  # Print the lines of output from the health check script after handling
+          when: health_check_retry.stdout != ""  # Only run this task if there is output from the health check script
+
+      rescue:  # If any task in the block fails, the tasks in the rescue section will be executed
+        - name: Fail if post-checks are not met
+          fail:
+            msg: "Post-checks failed. Halting playbook execution."  # Fail the playbook with a message if post-checks are not met
