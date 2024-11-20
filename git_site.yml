@@ -1,99 +1,112 @@
 ---
 - name: Pre-check - Ensure connectivity and check /home usage
-  hosts: all
+  hosts: localhost  # Run on the local machine
+  connection: local  # Use local connection
   tasks:
     - block:
-        - name: Ping the server
+        # Test local connectivity
+        - name: Ping the local machine
           ping:
 
+        # Check /home disk usage on the local machine
         - name: Check /home usage
           command: df -h /home
           register: home_usage
-          failed_when: home_usage.stdout_lines[1].split()[4] > '90%'
+          failed_when: home_usage.stdout_lines[1].split()[4] > '90%'  # Fail if disk usage exceeds 90%
 
       rescue:
+        # Halt the playbook if pre-checks fail
         - name: Fail if pre-checks are not met
           fail:
             msg: "Pre-checks failed. Halting playbook execution."
 
 - name: Perform security hardening
-  hosts: all
+  hosts: localhost  # Run on the local machine
+  connection: local  # Use local connection
   tasks:
     - block:
-        - name: Copy security hardening script to remote
-          copy:
-            src: /path/to/local/security_hardening.py  # Replace with the local path to your script
-            dest: /path/to/remote/security_hardening.py  # Replace with the destination path on the remote server
-            mode: '0755'
-
+        # Run the security hardening script locally
         - name: Run security hardening script
-          script: /path/to/remote/security_hardening.py  # Ensure this path matches the destination path
+          script: /path/to/local/security_hardening.py  # Path to the local script
           args:
-            executable: python3
-            creates: /path/to/lockfile  # Optional: to avoid re-running the script
-          become: yes
+            executable: python3  # Use Python3 as the interpreter
+            creates: /var/lock/security_hardening.lock  # Prevent re-running if lockfile exists
+          become: yes  # Run with elevated privileges (sudo)
 
 - name: Post-check - Verify SSH service and server health
-  hosts: all
+  hosts: localhost  # Run on the local machine
+  connection: local  # Use local connection
   tasks:
     - block:
+        # Run the health check script locally
         - name: Run health check script
-          script: /path/to/remote/health_check.py  # Replace with the correct path to your health check script
+          script: /path/to/local/health_check.py  # Path to the local health check script
           register: health_check
           failed_when:
             - "'Disk Utilization > 90%' in health_check.stdout"
             - "'CPU Utilization > 90%' in health_check.stdout"
-          changed_when: false
+          changed_when: false  # Don't mark as changed unless necessary
 
+        # Print health check output
         - name: Print health check output
           debug:
             var: health_check.stdout_lines
-          when: health_check.stdout != ""
+          when: health_check.stdout != ""  # Only run if there's output to display
 
+        # Verify SSH service is running locally
         - name: Check SSH service status
           systemd:
             name: sshd
-            state: started
+            state: started  # Ensure the SSH service is running
 
       rescue:
+        # Halt the playbook if post-checks fail
         - name: Fail if post-checks are not met
           fail:
             msg: "Post-checks failed. Halting playbook execution."
 
 - name: Handle high disk utilization
-  hosts: all
+  hosts: localhost  # Run on the local machine
+  connection: local  # Use local connection
   tasks:
     - block:
+        # Print health check details for debugging
         - name: Print health check details before handling
           debug:
             var: health_check.stdout_lines
 
+        # Clean up old log files on a Red Hat server
         - name: Clean up old log files
           shell: sudo rm -rf /var/log/old_logs/*
           when: "'Disk Utilization > 90%' in health_check.stdout"
 
+        # Clean up package cache using yum for Red Hat-based systems
         - name: Clean up package cache
-          shell: sudo apt-get clean && sudo yum clean all
+          shell: sudo yum clean all
           when: "'Disk Utilization > 90%' in health_check.stdout"
 
+        # Free up space in /home by removing the largest directories
         - name: Free up space in /home
           shell: sudo du -sh /home/* | sort -hr | head -n 10 | xargs sudo rm -rf
           when: "'Disk Utilization > 90%' in health_check.stdout"
 
+        # Re-run the health check script to verify improvements
         - name: Re-run health check script
-          script: /path/to/remote/health_check.py  # Ensure this path matches the destination path
+          script: /path/to/local/health_check.py  # Path to the local health check script
           register: health_check_retry
           failed_when:
             - "'Disk Utilization > 90%' in health_check_retry.stdout"
             - "'CPU Utilization > 90%' in health_check_retry.stdout"
           changed_when: false
 
+        # Print the retry health check output
         - name: Print health check retry output
           debug:
             var: health_check_retry.stdout_lines
           when: health_check_retry.stdout != ""
 
       rescue:
-        - name: Fail if post-checks are not met
+        # Halt the playbook if handling high disk utilization fails
+        - name: Fail if handling disk utilization fails
           fail:
             msg: "Post-checks failed. Halting playbook execution."
