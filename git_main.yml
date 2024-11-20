@@ -23,7 +23,7 @@
       script: security_hardening.py  # Path to the security hardening script
       args:
         executable: python3  # Specify Python3 as the interpreter
-        creates: /path/to/lockfile  # Optional: Prevent re-running the script if the lockfile exists
+        creates: /var/lock/security_hardening.lock  # Optional: Prevent re-running the script if the lockfile exists
       become: yes  # Run with elevated privileges (sudo)
 
   rescue:
