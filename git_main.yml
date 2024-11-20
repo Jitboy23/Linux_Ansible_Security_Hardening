@@ -1,49 +1,62 @@
----
 - name: Pre-check - Ensure connectivity and check /home usage
   block:
+    # Test connectivity to the server using Ansible's ping module
     - name: Ping the server
       ping:
 
+    # Check disk usage for the /home directory and fail if usage exceeds 90%
     - name: Check /home usage
       command: df -h /home
-      register: home_usage
-      failed_when: home_usage.stdout_lines[1].split()[4] > '90%'
+      register: home_usage  # Capture the command output for analysis
+      failed_when: home_usage.stdout_lines[1].split()[4] > '90%'  # Fail if disk usage is greater than 90%
 
   rescue:
+    # If pre-checks fail, stop the playbook execution with an error message
     - name: Fail if pre-checks are not met
       fail:
         msg: "Pre-checks failed. Halting playbook execution."
 
 - name: Perform security hardening
   block:
+    # Execute the security hardening script
     - name: Run security hardening script
-      script: "{{ playbook_dir }}/security_hardening.py"
+      script: security_hardening.py  # Path to the security hardening script
       args:
-        executable: python3
-        creates: "{{ playbook_dir }}/security_hardening.lock"  # Optional: to avoid re-running the script
-      become: yes
+        executable: python3  # Specify Python3 as the interpreter
+        creates: /path/to/lockfile  # Optional: Prevent re-running the script if the lockfile exists
+      become: yes  # Run with elevated privileges (sudo)
+
+  rescue:
+    # If the script fails, stop the playbook execution with an error message
+    - name: Fail if pre-checks are not met
+      fail:
+        msg: "Pre-checks failed. Halting playbook execution."
 
 - name: Post-check - Verify SSH service and server health
   block:
+    # Verify that the SSH service is running
     - name: Check SSH service status
       systemd:
-        name: sshd
-        state: started
+        name: sshd  # Name of the SSH service
+        state: started  # Ensure the service is running
 
+    # Run a health check script and capture the output
     - name: Run health check script
-      script: "{{ playbook_dir }}/health_check.py"
-      register: health_check
+      script: health_check.py  # Path to the health check script
+      register: health_check  # Capture the script's output
       failed_when:
-        - "'Disk Utilization > 90%' in health_check.stdout"
-        - "'CPU Utilization > 90%' in health_check.stdout"
-      changed_when: false
+        - "'Disk Utilization > 90%' in health_check.stdout"  # Fail if disk utilization exceeds 90%
+        - "'CPU Utilization > 90%' in health_check.stdout"  # Fail if CPU utilization exceeds 90%
+      changed_when: false  # Prevent marking the task as changed
 
+    # Print the output of the health check script if any is available
     - name: Print health check output
       debug:
         var: health_check.stdout_lines
-      when: health_check.stdout != ""
+      when: health_check.stdout != ""  # Only run if there is output to display
 
   rescue:
+    # If post-checks fail, stop the playbook execution with an error message
     - name: Fail if post-checks are not met
       fail:
         msg: "Post-checks failed. Halting playbook execution."
